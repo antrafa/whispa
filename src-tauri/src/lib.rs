@@ -9,6 +9,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 const SETUP_WINDOW_LABEL: &str = "setup";
 const HUD_WINDOW_LABEL: &str = "hud";
 const ABOUT_WINDOW_LABEL: &str = "about";
+const MAX_RECORDING_DURATION: std::time::Duration = std::time::Duration::from_secs(180);
 const IDLE_ICON: &[u8] = include_bytes!("../icons/icon.png");
 const RECORDING_ICON: &[u8] = include_bytes!("../icons/tray-recording.png");
 
@@ -259,6 +260,15 @@ fn start_recording(app: &AppHandle, state: &AppState) {
 
     std::thread::spawn(move || {
         record_until_stopped(&thread_samples, &thread_format, &thread_stop_flag);
+        // Cobre tanto o corte por MAX_RECORDING quanto qualquer saida
+        // antecipada (erro de microfone): sem isso, o proximo toggle
+        // interpretaria o app como "ainda gravando" pra sempre.
+        thread_app
+            .state::<AppState>()
+            .recording
+            .lock()
+            .unwrap()
+            .take();
         finish_recording(&thread_app, cycle_id, &thread_samples, &thread_format);
     });
 
@@ -348,7 +358,12 @@ fn record_until_stopped(
         return;
     }
 
+    let deadline = std::time::Instant::now() + MAX_RECORDING_DURATION;
     while !stop_flag.load(Ordering::SeqCst) {
+        if std::time::Instant::now() >= deadline {
+            eprintln!("whispa: gravacao cortada em {MAX_RECORDING_DURATION:?} (limite de seguranca)");
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     // stream é dropado aqui, o que encerra a captura
