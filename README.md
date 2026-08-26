@@ -90,6 +90,16 @@ npm run tauri build
 
 **Windows/macOS:** essas plataformas suportam registro de atalho global nativo de verdade, então o app registra `Alt+Shift+D` sozinho na primeira execução, sem passo manual. Essa combinação foi escolhida pra evitar colisão com atalhos comuns de navegador, mas **ainda não foi verificada em hardware Windows/Mac real** — se conflitar com algo no seu sistema, abra uma issue.
 
+## Atualização
+
+A partir da v0.1.2, o app checa sozinho por versão nova ao abrir e mostra um aviso na tela de configuração pra instalar com um clique (baixa, instala e reinicia). Isso só funciona pra quem já está em v0.1.2+ — versões anteriores precisam de uma última atualização manual:
+
+```bash
+sudo dpkg -i Whispa_X.Y.Z_amd64.deb
+```
+
+O update automático só encontra release **publicada** (não draft) — verifique isso antes de esperar o aviso aparecer.
+
 ## Stack técnica
 
 - **[Tauri 2](https://tauri.app)** — shell nativo (Rust) + WebView do sistema, sem Chromium embutido
@@ -100,6 +110,7 @@ npm run tauri build
 ## Roadmap
 
 - [x] Instalador empacotado (`.deb` / `.AppImage` / `.msi` / `.dmg`, via CI)
+- [x] Atualização automática (a partir da v0.1.2)
 - [ ] Validar Windows e macOS em hardware real (código pronto, não testado)
 - [ ] Assinatura de código pra Windows/macOS (remove os avisos de "app não confiável")
 - [ ] Atalho global via XDG Desktop Portal no Linux (funcionaria em qualquer DE, não só GNOME)

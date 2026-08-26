@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 type ModelInfo = {
   provider: string;
@@ -166,12 +168,45 @@ async function setupAutostartToggle() {
   });
 }
 
+async function checkForUpdateAndPrompt() {
+  const banner = document.querySelector<HTMLElement>("#update-banner");
+  const versionEl = document.querySelector("#update-version");
+  const installBtn = document.querySelector<HTMLButtonElement>("#update-install");
+  if (!banner || !installBtn) return;
+
+  let update;
+  try {
+    update = await checkForUpdate();
+  } catch (e) {
+    console.error("falha ao checar atualizacao", e);
+    return;
+  }
+  if (!update?.available) return;
+
+  if (versionEl) versionEl.textContent = `Versão ${update.version} pronta pra instalar.`;
+  banner.removeAttribute("hidden");
+
+  installBtn.addEventListener("click", async () => {
+    installBtn.disabled = true;
+    installBtn.textContent = "Instalando…";
+    try {
+      await update.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      console.error("falha ao instalar atualizacao", e);
+      installBtn.disabled = false;
+      installBtn.textContent = "Tentar de novo";
+    }
+  });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   applyPlatformUi();
   loadToggleCommand();
   refreshHotkeyStatus();
   loadProviderSettings();
   setupAutostartToggle();
+  checkForUpdateAndPrompt();
 
   document
     .querySelector("#open-settings")

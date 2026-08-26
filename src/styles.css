@@ -472,6 +472,17 @@ code {
   margin: 0;
 }
 
+.update-banner {
+  border-color: rgba(255, 171, 74, 0.4);
+  box-shadow: 0 0 0 1px rgba(255, 171, 74, 0.15), 0 20px 40px -28px rgba(0, 0, 0, 0.6);
+}
+
+.update-btn {
+  width: auto;
+  padding: 10px 18px;
+  white-space: nowrap;
+}
+
 .switch {
   flex: none;
   width: 44px;
