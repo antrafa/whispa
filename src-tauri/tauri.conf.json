@@ -58,7 +58,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxRDNEQjRFMTYyNTBCMzcKUldRM0N5VVdUdHZUMGJuak01Njl0TkpFWmhYbnY2OW1uNW1HU1Q5dmRiY20rTC9ZczNkMFpFVWEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGNDVGQzRFQjExRDY2RTQKUldUa1poMnhUdnhGUDgzRWZadmsyTEhVbTVBRVZXWWpuZkF1WHRBa3VQZWFlNXJNN05JRjE5OGwK",
       "endpoints": [
         "https://github.com/antrafa/whispa/releases/latest/download/latest.json"
       ]
