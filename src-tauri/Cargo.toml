@@ -29,3 +29,9 @@ cpal = "0.15"
 hound = "3.5"
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "json", "rustls-tls-native-roots"] }
 
+# No Linux/GNOME o atalho global via API nativa não é confiável no Wayland
+# (por isso o fluxo de setup guiado com atalho personalizado do GNOME).
+# Windows e macOS suportam registro de atalho global nativo de verdade.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tauri-plugin-global-shortcut = "2"
+

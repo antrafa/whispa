@@ -31,6 +31,13 @@ function setStatus(selector: string, ok: boolean, message: string) {
   if (msg) msg.textContent = message;
 }
 
+async function applyPlatformUi() {
+  const platform = await invoke<string>("platform_name");
+  if (platform === "linux") return;
+  document.querySelector("#hotkey-linux")?.setAttribute("hidden", "");
+  document.querySelector("#hotkey-native")?.removeAttribute("hidden");
+}
+
 async function loadToggleCommand() {
   const commandEl = document.querySelector("#toggle-command");
   if (!commandEl) return;
@@ -160,6 +167,7 @@ async function setupAutostartToggle() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  applyPlatformUi();
   loadToggleCommand();
   refreshHotkeyStatus();
   loadProviderSettings();

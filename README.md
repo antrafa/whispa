@@ -14,7 +14,7 @@ Whispa é um app de desktop que transcreve sua voz em texto em qualquer aplicati
 
 Ferramentas de ditado já existem — mas quase todas são Mac/Windows only, fecham o código, ou empurram você pra um único provedor de IA com preço fixo. O Whispa nasceu porque nenhuma delas funcionava direito no Ubuntu com GNOME.
 
-- **Nativo no Linux** — feito e testado primeiro pra Ubuntu/GNOME, onde a maioria das alternativas simplesmente não roda.
+- **Nativo no Linux** — feito e testado primeiro pra Ubuntu/GNOME, onde a maioria das alternativas simplesmente não roda. Windows e macOS têm suporte no código (atalho global nativo) e build automatizado via CI, mas ainda não foram testados em hardware real dessas plataformas.
 - **Sem vendor lock-in** — escolha o provedor de transcrição (Groq ou OpenAI) e o modelo, com o preço por minuto de cada um visível na hora de decidir.
 - **Sua chave, seus dados** — o app nunca vê seu áudio nem sua chave de API. Tudo vai direto do seu computador pro provedor que você escolheu.
 - **Feedback visual de verdade** — um indicador flutuante mostra quando está gravando, transcrevendo, ou se algo deu errado, então você nunca cola texto velho por engano.
@@ -43,9 +43,19 @@ Ferramentas de ditado já existem — mas quase todas são Mac/Windows only, fec
 
 Preços cobrados diretamente pelo provedor, na sua própria conta — o Whispa não intermedia, não cobra por uso e não vê seu áudio. Você cria uma chave gratuita em [console.groq.com](https://console.groq.com) ou [platform.openai.com](https://platform.openai.com), cola na tela de configuração, e pronto.
 
+## Plataformas
+
+| SO | Status | Atalho global |
+|---|---|---|
+| Linux (Ubuntu/GNOME) | Testado e validado | Atalho personalizado guiado nas Configurações do sistema (necessário no Wayland) |
+| Windows | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`Alt+Shift+D`, ainda não verificado) |
+| macOS | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`Alt+Shift+D`, ainda não verificado) |
+
 ## Instalação
 
-Ainda não há instalador empacotado — construa a partir do código-fonte:
+Instaladores pra Linux, Windows e macOS são gerados automaticamente a cada release, na aba [Releases](https://github.com/antrafa/whispa/releases) — sem assinatura de código ainda, então Windows (SmartScreen) e macOS (Gatekeeper) vão avisar que o app não é de um desenvolvedor reconhecido.
+
+Ou construa a partir do código-fonte:
 
 ### Pré-requisitos (Ubuntu/Debian)
 
@@ -74,9 +84,11 @@ Na primeira execução, o app abre uma tela guiada pra cadastrar o atalho de tec
 npm run tauri build
 ```
 
-## Atalho de teclado no GNOME/Wayland
+## Atalho de teclado
 
-O GNOME no Wayland não deixa apps de terceiros capturarem atalhos globais sozinhos. O Whispa contorna isso registrando um atalho personalizado nas Configurações do sistema, que roda `whispa --toggle` — a própria tela de configuração te guia por esse passo com o comando já pronto pra colar.
+**Linux/GNOME:** o Wayland não deixa apps de terceiros capturarem atalhos globais sozinhos. O Whispa contorna isso registrando um atalho personalizado nas Configurações do sistema, que roda `whispa --toggle` — a própria tela de configuração te guia por esse passo com o comando já pronto pra colar.
+
+**Windows/macOS:** essas plataformas suportam registro de atalho global nativo de verdade, então o app registra `Alt+Shift+D` sozinho na primeira execução, sem passo manual. Essa combinação foi escolhida pra evitar colisão com atalhos comuns de navegador, mas **ainda não foi verificada em hardware Windows/Mac real** — se conflitar com algo no seu sistema, abra uma issue.
 
 ## Stack técnica
 
@@ -87,14 +99,15 @@ O GNOME no Wayland não deixa apps de terceiros capturarem atalhos globais sozin
 
 ## Roadmap
 
-- [ ] Instalador empacotado (`.deb` / `.AppImage`)
-- [ ] Suporte a Windows e macOS
-- [ ] Atalho global via XDG Desktop Portal (funcionaria em qualquer DE Linux, não só GNOME)
+- [x] Instalador empacotado (`.deb` / `.AppImage` / `.msi` / `.dmg`, via CI)
+- [ ] Validar Windows e macOS em hardware real (código pronto, não testado)
+- [ ] Assinatura de código pra Windows/macOS (remove os avisos de "app não confiável")
+- [ ] Atalho global via XDG Desktop Portal no Linux (funcionaria em qualquer DE, não só GNOME)
 - [ ] Chave de API guardada no keychain do sistema em vez de arquivo local
 
 ## Privacidade
 
-O Whispa não tem servidor, não coleta analytics e não guarda o áudio depois de transcrito. A chave de API fica só na sua máquina (`~/.config/com.antonioortega.whispa/`, permissão restrita ao seu usuário). O único destino do seu áudio é o provedor de IA que você escolheu, usando a sua própria chave.
+O Whispa não tem servidor, não coleta analytics e não guarda o áudio depois de transcrito. A chave de API fica só na sua máquina (`~/.config/whispa/` no Linux, permissão restrita ao seu usuário). O único destino do seu áudio é o provedor de IA que você escolheu, usando a sua própria chave.
 
 ## Contribuindo
 

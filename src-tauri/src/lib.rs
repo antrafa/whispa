@@ -536,6 +536,34 @@ fn hotkey_confirmed(app: AppHandle) -> bool {
 }
 
 #[tauri::command]
+fn platform_name() -> &'static str {
+    std::env::consts::OS
+}
+
+// Windows e macOS registram o atalho global de verdade via API nativa do SO
+// — diferente do Linux/GNOME, que precisa do fluxo guiado (ver setup-guide).
+// Combinação escolhida pra evitar conflito com atalhos comuns de navegador
+// (Ctrl/Cmd+T, Cmd+Shift+T já são "nova aba"/"reabrir aba"); não verificado
+// em hardware Windows/Mac real ainda.
+#[cfg(not(target_os = "linux"))]
+const NATIVE_HOTKEY: &str = "Alt+Shift+D";
+
+#[cfg(not(target_os = "linux"))]
+fn native_hotkey_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_global_shortcut::ShortcutState;
+
+    tauri_plugin_global_shortcut::Builder::new()
+        .with_shortcut(NATIVE_HOTKEY)
+        .expect("atalho global nativo invalido")
+        .with_handler(|app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                toggle_recording(app);
+            }
+        })
+        .build()
+}
+
+#[tauri::command]
 fn list_provider_models() -> Vec<ModelInfo> {
     MODELS.to_vec()
 }
@@ -552,7 +580,7 @@ fn save_provider_settings(app: AppHandle, provider: String, model: String) -> Re
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if is_toggle_request(&argv) {
                 toggle_recording(app);
@@ -560,7 +588,12 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().build());
+
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.plugin(native_hotkey_plugin());
+
+    builder
         .manage(AppState {
             recording: Mutex::new(None),
             setup_done: AtomicBool::new(false),
@@ -574,15 +607,27 @@ pub fn run() {
             hotkey_confirmed,
             list_provider_models,
             get_provider_settings,
-            save_provider_settings
+            save_provider_settings,
+            platform_name
         ])
         .setup(|app| {
             let handle = app.handle();
             let state = handle.state::<AppState>();
+
+            // No Linux, só confirmamos o atalho quando o GNOME de fato o
+            // disparar (primeiro --toggle real). Em Windows/Mac o registro
+            // nativo já aconteceu (ou falhou) na hora de montar o `builder`,
+            // então não há passo manual do usuário pra aguardar.
+            #[cfg(target_os = "linux")]
             let hotkey_already_confirmed = setup_marker_path(handle).exists();
+            #[cfg(not(target_os = "linux"))]
+            let hotkey_already_confirmed = true;
+
             state
                 .setup_done
                 .store(hotkey_already_confirmed, Ordering::SeqCst);
+            #[cfg(not(target_os = "linux"))]
+            std::fs::write(setup_marker_path(handle), b"1").ok();
 
             if let Some(setup_window) = app.get_webview_window(SETUP_WINDOW_LABEL) {
                 if hotkey_already_confirmed && has_active_api_key(handle) {
