@@ -1,0 +1,69 @@
+.about-body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.about {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 34px 30px;
+  animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.about-badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+}
+
+.about-badge svg {
+  width: 30px;
+  height: 30px;
+}
+
+.about-name {
+  margin: 16px 0 6px;
+  font-size: 22px;
+}
+
+.about-version {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.about-tagline {
+  margin: 18px 0 0;
+  max-width: 300px;
+  font-size: 13px;
+}
+
+.about-divider {
+  width: 40px;
+  height: 1px;
+  background: var(--border);
+  margin: 22px 0;
+}
+
+.about-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.about-author {
+  margin: 0 0 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 280px;
+}
+
+.about-github {
+  width: auto;
+  padding: 10px 20px;
+}

@@ -1,0 +1,208 @@
+:root {
+  --graphite: #17151a;
+  --graphite-edge: #2a262c;
+  --amber: #ffb454;
+  --amber-dim: #7a5a30;
+  --cyan: #7fe3d8;
+  --green: #6fdd8b;
+  --coral: #ff6b5e;
+  --ink: #efe9e2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 300px;
+  height: 92px;
+  background: transparent;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+}
+
+.pill {
+  --accent: var(--amber);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px 0 12px;
+  height: 52px;
+  border-radius: 26px;
+  background:
+    radial-gradient(140% 180% at 20% -20%, rgba(255, 255, 255, 0.06), transparent 55%),
+    var(--graphite);
+  border: 1px solid var(--graphite-edge);
+  box-shadow:
+    0 10px 30px -8px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 0 22px -6px var(--accent);
+  transition: box-shadow 0.25s ease, opacity 0.2s ease;
+  animation: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lens {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  opacity: 0.86;
+  white-space: nowrap;
+}
+
+/* --- bars (recording) --- */
+.bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.bars span {
+  width: 3px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: none;
+}
+
+/* --- ring (processing) --- */
+.ring {
+  position: absolute;
+  inset: 0;
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 20 56;
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+}
+
+/* --- check (success) --- */
+.check {
+  position: absolute;
+  inset: 0;
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  opacity: 0;
+}
+
+/* --- warn (error) --- */
+.warn {
+  position: absolute;
+  inset: 0;
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+/* ================= states ================= */
+
+.pill[data-state="recording"] {
+  --accent: var(--amber);
+}
+.pill[data-state="recording"] .bars span {
+  animation: bar 900ms ease-in-out infinite;
+}
+.pill[data-state="recording"] .bars span:nth-child(1) { animation-delay: 0ms; }
+.pill[data-state="recording"] .bars span:nth-child(2) { animation-delay: 90ms; }
+.pill[data-state="recording"] .bars span:nth-child(3) { animation-delay: 180ms; }
+.pill[data-state="recording"] .bars span:nth-child(4) { animation-delay: 270ms; }
+.pill[data-state="recording"] .bars span:nth-child(5) { animation-delay: 360ms; }
+
+@keyframes bar {
+  0%, 100% { height: 6px; }
+  50% { height: 18px; }
+}
+
+.pill[data-state="processing"] {
+  --accent: var(--cyan);
+}
+.pill[data-state="processing"] .bars { opacity: 0; }
+.pill[data-state="processing"] .ring {
+  opacity: 1;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pill[data-state="success"] {
+  --accent: var(--green);
+}
+.pill[data-state="success"] .bars { opacity: 0; }
+.pill[data-state="success"] .check {
+  opacity: 1;
+  animation: draw 380ms ease-out forwards;
+}
+
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+
+.pill[data-state="error"] {
+  --accent: var(--coral);
+}
+.pill[data-state="error"] .bars { opacity: 0; }
+.pill[data-state="error"] .warn { opacity: 1; }
+.pill[data-state="error"] {
+  animation: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), shake 320ms ease-in-out 1;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.pill[data-state="processing"] .bars,
+.pill[data-state="success"] .bars,
+.pill[data-state="error"] .bars {
+  transition: opacity 0.15s ease;
+}

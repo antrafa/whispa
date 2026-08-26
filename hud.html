@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/hud.css" />
+    <title>whispa</title>
+    <script type="module" src="/src/hud.ts" defer></script>
+  </head>
+  <body>
+    <div class="pill" id="pill" data-state="recording">
+      <div class="lens">
+        <div class="bars">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <svg class="ring" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="12" />
+        </svg>
+        <svg class="check" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 12.5l5 5L20 6" />
+        </svg>
+        <svg class="warn" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v11" />
+          <circle cx="12" cy="19" r="0.6" />
+        </svg>
+      </div>
+      <span class="label" id="label">GRAVANDO</span>
+    </div>
+  </body>
+</html>
