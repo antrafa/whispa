@@ -49,11 +49,11 @@ Preços cobrados diretamente pelo provedor, na sua própria conta — o Whispa n
 |---|---|---|
 | Linux (Ubuntu/GNOME) | Testado e validado | Atalho personalizado guiado nas Configurações do sistema (necessário no Wayland) |
 | Windows | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`Alt+Shift+D`, ainda não verificado) |
-| macOS | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`Alt+Shift+D`, ainda não verificado) |
+| macOS | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`⌥⇧D` / Option+Shift+D, ainda não verificado) |
 
 ## Instalação
 
-Instaladores pra Linux, Windows e macOS são gerados automaticamente a cada release, na aba [Releases](https://github.com/antrafa/whispa/releases) — sem assinatura de código ainda, então Windows (SmartScreen) e macOS (Gatekeeper) vão avisar que o app não é de um desenvolvedor reconhecido.
+Instaladores pra Linux, Windows e macOS são gerados automaticamente a cada release, na aba [Releases](https://github.com/antrafa/whispa/releases). O app do macOS recebe uma assinatura ad-hoc válida, evitando o falso aviso de arquivo corrompido, mas ainda não tem Developer ID nem notarização — o Gatekeeper pode pedir liberação manual em Privacidade e Segurança. No Windows, o SmartScreen também pode avisar que o app não é de um desenvolvedor reconhecido.
 
 Ou construa a partir do código-fonte:
 
@@ -112,7 +112,8 @@ O update automático só encontra release **publicada** (não draft) — verifiq
 - [x] Instalador empacotado (`.deb` / `.AppImage` / `.msi` / `.dmg`, via CI)
 - [x] Atualização automática (a partir da v0.1.2)
 - [ ] Validar Windows e macOS em hardware real (código pronto, não testado)
-- [ ] Assinatura de código pra Windows/macOS (remove os avisos de "app não confiável")
+- [x] Assinatura ad-hoc no macOS (evita o falso aviso de arquivo corrompido)
+- [ ] Developer ID + notarização no macOS e assinatura no Windows (remove os avisos de "app não confiável")
 - [ ] Atalho global via XDG Desktop Portal no Linux (funcionaria em qualquer DE, não só GNOME)
 - [ ] Chave de API guardada no keychain do sistema em vez de arquivo local
 

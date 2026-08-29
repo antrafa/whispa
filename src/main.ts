@@ -33,13 +33,6 @@ function setStatus(selector: string, ok: boolean, message: string) {
   if (msg) msg.textContent = message;
 }
 
-async function applyPlatformUi() {
-  const platform = await invoke<string>("platform_name");
-  if (platform === "linux") return;
-  document.querySelector("#hotkey-linux")?.setAttribute("hidden", "");
-  document.querySelector("#hotkey-native")?.removeAttribute("hidden");
-}
-
 async function loadToggleCommand() {
   const commandEl = document.querySelector("#toggle-command");
   if (!commandEl) return;
@@ -55,12 +48,47 @@ async function copyToggleCommand() {
   setTimeout(() => button.classList.remove("copied"), 1200);
 }
 
-async function refreshHotkeyStatus() {
-  const confirmed = await invoke<boolean>("hotkey_confirmed");
+function renderNativeShortcut(shortcut: string) {
+  const el = document.querySelector<HTMLElement>("#native-shortcut");
+  if (!el) return;
+  const keys = shortcut.split("+");
+  el.replaceChildren();
+  keys.forEach((key, index) => {
+    if (index > 0) {
+      const plus = document.createElement("span");
+      plus.className = "plus";
+      plus.setAttribute("aria-hidden", "true");
+      plus.textContent = "+";
+      el.appendChild(plus);
+    }
+    const keycap = document.createElement("kbd");
+    keycap.textContent = key;
+    el.appendChild(keycap);
+  });
+  el.setAttribute("aria-label", `Atalho automático: ${keys.join(" mais ")}`);
+}
+
+async function setupHotkeyUi() {
+  const [platform, shortcut, confirmed] = await Promise.all([
+    invoke<string>("platform_name"),
+    invoke<string>("hotkey_display_name"),
+    invoke<boolean>("hotkey_confirmed"),
+  ]);
+
+  if (platform !== "linux") {
+    document.querySelector("#hotkey-linux")?.setAttribute("hidden", "");
+    document.querySelector("#hotkey-native")?.removeAttribute("hidden");
+    renderNativeShortcut(shortcut);
+  }
+
   setStatus(
     "#status",
     confirmed,
-    confirmed ? "atalho confirmado." : "aguardando o primeiro Super+T…",
+    confirmed
+      ? platform === "linux"
+        ? "atalho confirmado."
+        : `atalho automático ativo: ${shortcut}`
+      : `aguardando o primeiro ${shortcut}…`,
   );
 }
 
@@ -201,9 +229,8 @@ async function checkForUpdateAndPrompt() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  applyPlatformUi();
+  setupHotkeyUi();
   loadToggleCommand();
-  refreshHotkeyStatus();
   loadProviderSettings();
   setupAutostartToggle();
   checkForUpdateAndPrompt();

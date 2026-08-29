@@ -15,12 +15,16 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
           - platform: 'macos-latest'
+            target: 'x86_64-apple-darwin'
             args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
+            target: ''
             args: ''
           - platform: 'windows-latest'
+            target: ''
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -63,9 +67,28 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'Whispa v__VERSION__'
           releaseBody: |
-            Instaladores gerados automaticamente pelo CI. Ainda sem assinatura de
-            código — Windows (SmartScreen) e macOS (Gatekeeper) vão avisar que o
-            app não é de um desenvolvedor reconhecido antes de abrir.
+            Instaladores gerados automaticamente pelo CI. O macOS recebe uma
+            assinatura ad-hoc válida, mas ainda não há Developer ID/notarização;
+            macOS (Gatekeeper) e Windows (SmartScreen) podem exigir liberação manual.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: verify macOS bundle signature and disk image
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          dmg_dir="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          dmg="$(find "$dmg_dir" -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          hdiutil verify "$dmg"
+
+          mount_dir="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_dir"
+            rmdir "$mount_dir"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "$dmg"
+          codesign --verify --deep --strict --verbose=4 "$mount_dir/Whispa.app"

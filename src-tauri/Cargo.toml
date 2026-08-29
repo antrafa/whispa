@@ -1,6 +1,6 @@
 [package]
 name = "whispa"
-version = "0.1.2"
+version = "0.1.3"
 description = "Ditado por voz com atalho global — grava, transcreve e cola em qualquer app"
 authors = ["Antonio Rafael Ortega"]
 edition = "2021"
@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -36,4 +36,3 @@ reqwest = { version = "0.12", default-features = false, features = ["multipart",
 # Windows e macOS suportam registro de atalho global nativo de verdade.
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
-

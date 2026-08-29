@@ -13,6 +13,13 @@ const MAX_RECORDING_DURATION: std::time::Duration = std::time::Duration::from_se
 const IDLE_ICON: &[u8] = include_bytes!("../icons/icon.png");
 const RECORDING_ICON: &[u8] = include_bytes!("../icons/tray-recording.png");
 
+#[cfg(target_os = "linux")]
+const HOTKEY_DISPLAY_NAME: &str = "Super+T";
+#[cfg(target_os = "macos")]
+const HOTKEY_DISPLAY_NAME: &str = "⌥+⇧+D";
+#[cfg(target_os = "windows")]
+const HOTKEY_DISPLAY_NAME: &str = "Alt+Shift+D";
+
 struct AudioFormat {
     sample_rate: u32,
     channels: u16,
@@ -167,11 +174,11 @@ fn set_tray_state(app: &AppHandle, recording: bool) {
             let _ = tray.set_icon(Some(icon));
         }
         let tooltip = if recording {
-            "whispa — gravando (Super+T para parar)"
+            format!("whispa — gravando ({HOTKEY_DISPLAY_NAME} para parar)")
         } else {
-            "whispa — Super+T para ditar"
+            format!("whispa — {HOTKEY_DISPLAY_NAME} para ditar")
         };
-        let _ = tray.set_tooltip(Some(tooltip));
+        let _ = tray.set_tooltip(Some(&tooltip));
     });
 }
 
@@ -555,6 +562,11 @@ fn platform_name() -> &'static str {
     std::env::consts::OS
 }
 
+#[tauri::command]
+fn hotkey_display_name() -> &'static str {
+    HOTKEY_DISPLAY_NAME
+}
+
 // Windows e macOS registram o atalho global de verdade via API nativa do SO
 // — diferente do Linux/GNOME, que precisa do fluxo guiado (ver setup-guide).
 // Combinação escolhida pra evitar conflito com atalhos comuns de navegador
@@ -625,7 +637,8 @@ pub fn run() {
             list_provider_models,
             get_provider_settings,
             save_provider_settings,
-            platform_name
+            platform_name,
+            hotkey_display_name
         ])
         .setup(|app| {
             let handle = app.handle();
@@ -661,7 +674,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&settings_item, &about_item, &quit_item])?;
             TrayIconBuilder::with_id("main")
                 .icon(Image::from_bytes(IDLE_ICON)?)
-                .tooltip("whispa — Super+T para ditar")
+                .tooltip(format!("whispa — {HOTKEY_DISPLAY_NAME} para ditar"))
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     let window_label = match event.id().as_ref() {

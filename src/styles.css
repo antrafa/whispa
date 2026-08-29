@@ -228,6 +228,37 @@ kbd {
   font-size: 12px;
 }
 
+.native-shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 171, 74, 0.2);
+  border-radius: 16px;
+  background: var(--amber-wash);
+}
+
+.native-shortcut kbd {
+  min-width: 38px;
+  padding: 8px 12px;
+  border-radius: 11px;
+  border-color: rgba(255, 171, 74, 0.38);
+  background: var(--card-hi);
+  box-shadow: 0 2px 0 rgba(255, 171, 74, 0.18);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 16px;
+  text-align: center;
+}
+
+.native-shortcut .plus {
+  margin: 0;
+  font-size: 14px;
+}
+
 /* ---------- command block ---------- */
 
 .command-row {
