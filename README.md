@@ -25,7 +25,7 @@ Ferramentas de ditado já existem — mas quase todas são Mac/Windows only, fec
 1. Aperta o atalho configurado (`Super+T` por padrão).
 2. Fala.
 3. Aperta de novo pra parar.
-4. O áudio é transcrito pelo provedor escolhido e o texto cai direto na área de transferência — `Ctrl+V` em qualquer app.
+4. O áudio é transcrito pelo provedor escolhido e o texto cai direto na área de transferência — `Ctrl+V` no Linux/Windows ou `⌘+V` no macOS.
 
 <p align="center">
   <img src="docs/screenshots/engine-picker.png" alt="Seleção de provedor e modelo com preço por minuto" width="420">

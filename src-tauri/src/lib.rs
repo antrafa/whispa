@@ -244,11 +244,24 @@ fn hide_hud_after(app: &AppHandle, expected_cycle_id: u64, delay: std::time::Dur
 }
 
 fn end_cycle(app: &AppHandle, cycle_id: u64, success: bool, clipboard_message: Option<&str>) {
-    if let Some(message) = clipboard_message {
-        write_to_clipboard(app, message);
-    }
+    let clipboard_succeeded = clipboard_message
+        .map(|message| match write_to_clipboard(app, message) {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("whispa: falha ao escrever no clipboard: {error}");
+                false
+            }
+        })
+        .unwrap_or(true);
     set_tray_state(app, false);
-    show_hud(app, if success { "success" } else { "error" });
+    show_hud(
+        app,
+        if success && clipboard_succeeded {
+            "success"
+        } else {
+            "error"
+        },
+    );
     hide_hud_after(app, cycle_id, std::time::Duration::from_millis(1400));
 }
 
@@ -510,8 +523,34 @@ async fn transcribe_async(
         .map_err(|e| format!("resposta invalida do provedor: {e}"))
 }
 
-fn write_to_clipboard(app: &AppHandle, text: &str) {
-    let _ = app.clipboard().write_text(text.to_string());
+#[cfg(target_os = "macos")]
+fn write_to_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
+    // NSPasteboard e AppKit só podem ser acessados com segurança pela main
+    // thread. A transcrição termina numa worker thread, então chamar o plugin
+    // diretamente daqui pode falhar silenciosamente ou até derrubar o app.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let clipboard_app = app.clone();
+    let text = text.to_string();
+
+    app.run_on_main_thread(move || {
+        let result = clipboard_app
+            .clipboard()
+            .write_text(text)
+            .map_err(|error| error.to_string());
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("falha ao agendar escrita na main thread: {error}"))?;
+
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|error| format!("timeout aguardando escrita no clipboard: {error}"))?
+}
+
+#[cfg(not(target_os = "macos"))]
+fn write_to_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
+    app.clipboard()
+        .write_text(text.to_string())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
