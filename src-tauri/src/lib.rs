@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{image::Image, AppHandle, Emitter, Manager, PhysicalPosition};
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 const SETUP_WINDOW_LABEL: &str = "setup";
@@ -524,26 +525,52 @@ async fn transcribe_async(
 }
 
 #[cfg(target_os = "macos")]
-fn write_to_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
-    // NSPasteboard e AppKit só podem ser acessados com segurança pela main
-    // thread. A transcrição termina numa worker thread, então chamar o plugin
-    // diretamente daqui pode falhar silenciosamente ou até derrubar o app.
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let clipboard_app = app.clone();
-    let text = text.to_string();
+fn write_to_macos_clipboard(text: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
 
-    app.run_on_main_thread(move || {
-        let result = clipboard_app
-            .clipboard()
-            .write_text(text)
-            .map_err(|error| error.to_string());
-        let _ = sender.send(result);
-    })
-    .map_err(|error| format!("falha ao agendar escrita na main thread: {error}"))?;
+    // O clipboard-manager/arboard pode retornar Ok no macOS sem atualizar o
+    // NSPasteboard. pbcopy usa a integração nativa do sistema; o pbpaste logo
+    // depois impede que um falso sucesso chegue ao HUD.
+    let mut child = Command::new("/usr/bin/pbcopy")
+        .env("LANG", "en_US.UTF-8")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("falha ao iniciar pbcopy: {error}"))?;
 
-    receiver
-        .recv_timeout(std::time::Duration::from_secs(2))
-        .map_err(|error| format!("timeout aguardando escrita no clipboard: {error}"))?
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "pbcopy iniciou sem stdin".to_string())?;
+    stdin
+        .write_all(text.as_bytes())
+        .map_err(|error| format!("falha ao enviar texto ao pbcopy: {error}"))?;
+    drop(stdin);
+
+    let status = child
+        .wait()
+        .map_err(|error| format!("falha ao aguardar pbcopy: {error}"))?;
+    if !status.success() {
+        return Err(format!("pbcopy terminou com status {status}"));
+    }
+
+    let pasted = Command::new("/usr/bin/pbpaste")
+        .env("LANG", "en_US.UTF-8")
+        .output()
+        .map_err(|error| format!("falha ao confirmar clipboard com pbpaste: {error}"))?;
+    if !pasted.status.success() {
+        return Err(format!("pbpaste terminou com status {}", pasted.status));
+    }
+    if pasted.stdout != text.as_bytes() {
+        return Err("clipboard divergiu do texto transcrito".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn write_to_clipboard(_app: &AppHandle, text: &str) -> Result<(), String> {
+    write_to_macos_clipboard(text)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -551,6 +578,30 @@ fn write_to_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
     app.clipboard()
         .write_text(text.to_string())
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_clipboard_write_is_observable() {
+        let previous = std::process::Command::new("/usr/bin/pbpaste")
+            .env("LANG", "en_US.UTF-8")
+            .output()
+            .expect("ler clipboard antes do teste");
+        let previous = String::from_utf8_lossy(&previous.stdout).into_owned();
+
+        struct RestoreClipboard(String);
+        impl Drop for RestoreClipboard {
+            fn drop(&mut self) {
+                super::write_to_macos_clipboard(&self.0).ok();
+            }
+        }
+        let _restore = RestoreClipboard(previous);
+
+        let probe = format!("whispa-clipboard-probe-çã-{}", std::process::id());
+        super::write_to_macos_clipboard(&probe).expect("escrever e reler clipboard no macOS");
+    }
 }
 
 #[tauri::command]
