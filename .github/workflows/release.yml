@@ -91,4 +91,11 @@ jobs:
           trap cleanup EXIT
 
           hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "$dmg"
+          microphone_usage="$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$mount_dir/Whispa.app/Contents/Info.plist")"
+          test -n "$microphone_usage"
+          entitlements="$(mktemp)"
+          codesign --display --entitlements - --xml "$mount_dir/Whispa.app" > "$entitlements"
+          audio_input="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$entitlements")"
+          rm "$entitlements"
+          test "$audio_input" = "true"
           codesign --verify --deep --strict --verbose=4 "$mount_dir/Whispa.app"

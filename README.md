@@ -14,7 +14,7 @@ Whispa é um app de desktop que transcreve sua voz em texto em qualquer aplicati
 
 Ferramentas de ditado já existem — mas quase todas são Mac/Windows only, fecham o código, ou empurram você pra um único provedor de IA com preço fixo. O Whispa nasceu porque nenhuma delas funcionava direito no Ubuntu com GNOME.
 
-- **Nativo no Linux** — feito e testado primeiro pra Ubuntu/GNOME, onde a maioria das alternativas simplesmente não roda. Windows e macOS têm suporte no código (atalho global nativo) e build automatizado via CI, mas ainda não foram testados em hardware real dessas plataformas.
+- **Nativo no Linux** — feito e testado primeiro pra Ubuntu/GNOME, onde a maioria das alternativas simplesmente não roda. O fluxo de ditado e cópia também foi validado em um Mac com Apple Silicon. Windows tem suporte no código e build automatizado via CI, mas ainda não foi testado em hardware real.
 - **Sem vendor lock-in** — escolha o provedor de transcrição (Groq ou OpenAI) e o modelo, com o preço por minuto de cada um visível na hora de decidir.
 - **Sua chave, seus dados** — o app nunca vê seu áudio nem sua chave de API. Tudo vai direto do seu computador pro provedor que você escolheu.
 - **Feedback visual de verdade** — um indicador flutuante mostra quando está gravando, transcrevendo, ou se algo deu errado, então você nunca cola texto velho por engano.
@@ -49,7 +49,7 @@ Preços cobrados diretamente pelo provedor, na sua própria conta — o Whispa n
 |---|---|---|
 | Linux (Ubuntu/GNOME) | Testado e validado | Atalho personalizado guiado nas Configurações do sistema (necessário no Wayland) |
 | Windows | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`Alt+Shift+D`, ainda não verificado) |
-| macOS | Código pronto, build via CI, **não testado em máquina real** | Registrado automaticamente pelo app (`⌥⇧D` / Option+Shift+D, ainda não verificado) |
+| macOS | Ditado e cópia validados em Apple Silicon; build Intel via CI | Registrado automaticamente pelo app (`⌥⇧D` / Option+Shift+D) |
 
 ## Instalação
 
@@ -78,6 +78,8 @@ npm run tauri dev
 
 Na primeira execução, o app abre uma tela guiada pra cadastrar o atalho de teclado no GNOME e configurar a chave de API do provedor escolhido.
 
+No macOS, permita o acesso ao microfone ao iniciar o primeiro ditado. Se o acesso já foi negado, habilite **Whispa** em **Ajustes do Sistema → Privacidade e Segurança → Microfone** e reabra o app. Use `⌥⇧D` para iniciar/parar e, quando aparecer **COPIADO**, `⌘V` para colar. Para testar as permissões do app no macOS, use o `.app` empacotado: a execução pelo terminal pode usar as permissões do próprio terminal.
+
 ### Gerar um build de produção
 
 ```bash
@@ -88,7 +90,7 @@ npm run tauri build
 
 **Linux/GNOME:** o Wayland não deixa apps de terceiros capturarem atalhos globais sozinhos. O Whispa contorna isso registrando um atalho personalizado nas Configurações do sistema, que roda `whispa --toggle` — a própria tela de configuração te guia por esse passo com o comando já pronto pra colar.
 
-**Windows/macOS:** essas plataformas suportam registro de atalho global nativo de verdade, então o app registra `Alt+Shift+D` sozinho na primeira execução, sem passo manual. Essa combinação foi escolhida pra evitar colisão com atalhos comuns de navegador, mas **ainda não foi verificada em hardware Windows/Mac real** — se conflitar com algo no seu sistema, abra uma issue.
+**Windows/macOS:** essas plataformas suportam registro de atalho global nativo de verdade, então o app registra `Alt+Shift+D` sozinho na primeira execução, sem passo manual. Essa combinação foi escolhida pra evitar colisão com atalhos comuns de navegador, e foi validada em um Mac com Apple Silicon; **Windows ainda não foi verificado em hardware real** — se conflitar com algo no seu sistema, abra uma issue.
 
 ## Atualização
 
@@ -111,7 +113,8 @@ O update automático só encontra release **publicada** (não draft) — verifiq
 
 - [x] Instalador empacotado (`.deb` / `.AppImage` / `.msi` / `.dmg`, via CI)
 - [x] Atualização automática (a partir da v0.1.2)
-- [ ] Validar Windows e macOS em hardware real (código pronto, não testado)
+- [x] Validar ditado e cópia no macOS com Apple Silicon
+- [ ] Validar Windows e macOS Intel em hardware real
 - [x] Assinatura ad-hoc no macOS (evita o falso aviso de arquivo corrompido)
 - [ ] Developer ID + notarização no macOS e assinatura no Windows (remove os avisos de "app não confiável")
 - [ ] Atalho global via XDG Desktop Portal no Linux (funcionaria em qualquer DE, não só GNOME)
