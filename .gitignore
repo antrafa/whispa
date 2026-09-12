@@ -26,3 +26,4 @@ dist-ssr
 # Claude Code session artifacts
 .claude/
 .vscode/
+.playwright-cli/

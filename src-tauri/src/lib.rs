@@ -1,9 +1,12 @@
+mod transcription;
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{image::Image, AppHandle, Emitter, Manager, PhysicalPosition};
+use transcription::{ErrorKind, Failure};
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -34,6 +37,120 @@ struct AppState {
     recording: Mutex<Option<RecordingHandle>>,
     setup_done: AtomicBool,
     cycle_id: AtomicU64,
+    busy: AtomicBool,
+    recovery: Mutex<Option<Recovery>>,
+    hud: Mutex<HudState>,
+}
+
+impl AppState {
+    #[cfg(test)]
+    fn new_for_test() -> Self {
+        Self {
+            recording: Mutex::new(None),
+            setup_done: AtomicBool::new(false),
+            cycle_id: AtomicU64::new(0),
+            busy: AtomicBool::new(false),
+            recovery: Mutex::new(None),
+            hud: Mutex::new(HudState::new("idle", "")),
+        }
+    }
+
+    fn can_start_new_recording(&self) -> bool {
+        if self.recording.lock().unwrap().is_some() {
+            return false;
+        }
+        if self.busy.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        if self.recovery.lock().unwrap().is_some() {
+            self.busy.store(false, Ordering::SeqCst);
+            return false;
+        }
+        true
+    }
+
+    fn prepare_retry(&self) -> Result<(u64, Recovery), String> {
+        if self.busy.swap(true, Ordering::SeqCst) {
+            return Err("Já existe um ditado em andamento.".into());
+        }
+        if !self.hud.lock().unwrap().can_retry {
+            self.busy.store(false, Ordering::SeqCst);
+            return Err("Esta falha exige uma nova gravação.".into());
+        }
+        let recovery = self.recovery.lock().unwrap().clone();
+        let Some(recovery) = recovery else {
+            self.busy.store(false, Ordering::SeqCst);
+            return Err("Não há gravação para tentar novamente.".into());
+        };
+        let cycle_id = self.cycle_id.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok((cycle_id, recovery))
+    }
+
+    fn perform_dismiss(&self) -> Result<(), String> {
+        if self.busy.swap(true, Ordering::SeqCst) {
+            return Err("Aguarde o ditado terminar.".into());
+        }
+        self.recovery.lock().unwrap().take();
+        self.cycle_id.fetch_add(1, Ordering::SeqCst);
+        *self.hud.lock().unwrap() = HudState::new("idle", "");
+        self.busy.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn build_failure_hud(&self, error: &Failure, detail: &str) -> HudState {
+        let (has_recovery, recovery_message) = match self.recovery.lock().unwrap().as_ref() {
+            Some(Recovery::Audio(_)) => (true, "Áudio mantido em memória. Descartar ou fechar o app apaga esta gravação."),
+            Some(Recovery::Text(_)) => (true, "Texto mantido em memória. Descartar ou fechar o app apaga esta transcrição."),
+            None => (false, ""),
+        };
+        let mut hud = HudState::new("error", &error.title);
+        hud.message = error.message.clone();
+        hud.detail = detail.to_owned();
+        hud.can_retry = has_recovery && error.retryable;
+        hud.has_recovery = has_recovery;
+        hud.recovery_message = recovery_message.into();
+        *self.hud.lock().unwrap() = hud.clone();
+        self.busy.store(false, Ordering::SeqCst);
+        hud
+    }
+}
+
+#[derive(Clone)]
+struct PendingAudio {
+    bytes: Arc<Vec<u8>>,
+    duration_seconds: f64,
+    limit_reached: bool,
+}
+
+#[derive(Clone)]
+enum Recovery {
+    Audio(PendingAudio),
+    Text(String),
+}
+
+#[derive(Clone, serde::Serialize)]
+struct HudState {
+    state: String,
+    title: String,
+    message: String,
+    detail: String,
+    can_retry: bool,
+    has_recovery: bool,
+    recovery_message: String,
+    started_at_ms: u64,
+    recording_limit_secs: u64,
+}
+
+impl HudState {
+    fn new(state: &str, title: &str) -> Self {
+        Self {
+            state: state.into(), title: title.into(), message: String::new(),
+            detail: String::new(), can_retry: false, has_recovery: false, recovery_message: String::new(),
+            started_at_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_millis() as u64,
+            recording_limit_secs: MAX_RECORDING_DURATION.as_secs(),
+        }
+    }
 }
 
 #[derive(serde::Serialize, Clone, Copy)]
@@ -215,55 +332,96 @@ fn position_hud(window: &tauri::WebviewWindow) {
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
-fn show_hud(app: &AppHandle, hud_state: &str) {
-    let _ = app.emit("hud-state", serde_json::json!({ "state": hud_state }));
-    let main_thread_app = app.clone();
+fn present_hud(app: &AppHandle, payload: HudState) {
+    let cycle_id = app.state::<AppState>().cycle_id.load(Ordering::SeqCst);
+    *app.state::<AppState>().hud.lock().unwrap() = payload.clone();
+    let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        let Some(window) = main_thread_app.get_webview_window(HUD_WINDOW_LABEL) else {
-            return;
-        };
+        if handle.state::<AppState>().cycle_id.load(Ordering::SeqCst) != cycle_id { return; }
+        let Some(window) = handle.get_webview_window(HUD_WINDOW_LABEL) else { return; };
+        let (width, height) = if payload.state == "error" { (460.0, 380.0) } else if !payload.message.is_empty() { (340.0, 180.0) } else { (340.0, 110.0) };
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
         position_hud(&window);
+        let _ = handle.emit("hud-state", &payload);
         let _ = window.show();
     });
+}
+
+fn show_hud(app: &AppHandle, state: &str) {
+    let title = match state {
+        "recording" => "GRAVANDO",
+        "processing" => "TRANSCREVENDO",
+        "success" => "COPIADO",
+        _ => "ERRO",
+    };
+    present_hud(app, HudState::new(state, title));
 }
 
 fn hide_hud_after(app: &AppHandle, expected_cycle_id: u64, delay: std::time::Duration) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(delay);
-        let state = app.state::<AppState>();
-        if state.cycle_id.load(Ordering::SeqCst) != expected_cycle_id {
-            return; // um novo ciclo já começou, não esconde o HUD dele
-        }
-        let main_thread_app = app.clone();
+        let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
-            if let Some(window) = main_thread_app.get_webview_window(HUD_WINDOW_LABEL) {
+            let state = handle.state::<AppState>();
+            if state.cycle_id.load(Ordering::SeqCst) != expected_cycle_id { return; }
+            if state.hud.lock().unwrap().state != "success" { return; }
+            if let Some(window) = handle.get_webview_window(HUD_WINDOW_LABEL) {
                 let _ = window.hide();
             }
         });
     });
 }
 
-fn end_cycle(app: &AppHandle, cycle_id: u64, success: bool, clipboard_message: Option<&str>) {
-    let clipboard_succeeded = clipboard_message
-        .map(|message| match write_to_clipboard(app, message) {
-            Ok(()) => true,
-            Err(error) => {
-                eprintln!("whispa: falha ao escrever no clipboard: {error}");
-                false
-            }
-        })
-        .unwrap_or(true);
+fn fail_cycle(app: &AppHandle, error: Failure, detail: String) {
+    let state = app.state::<AppState>();
+    let hud = state.build_failure_hud(&error, &detail);
+    // Diagnostics contain no audio, transcription, API key, or raw provider response.
+    if let Ok(json) = serde_json::to_vec_pretty(&serde_json::json!({ "error": error, "context": hud })) {
+        let _ = std::fs::write(config_dir(app).join("last-error.json"), json);
+    }
     set_tray_state(app, false);
-    show_hud(
-        app,
-        if success && clipboard_succeeded {
-            "success"
-        } else {
-            "error"
-        },
-    );
-    hide_hud_after(app, cycle_id, std::time::Duration::from_millis(1400));
+    present_hud(app, hud);
+}
+
+fn deliver_text(app: &AppHandle, cycle_id: u64, text: String) {
+    let state = app.state::<AppState>();
+    *state.recovery.lock().unwrap() = Some(Recovery::Text(text.clone()));
+    match write_to_clipboard(app, &text) {
+        Ok(()) => {
+            state.recovery.lock().unwrap().take();
+            set_tray_state(app, false);
+            show_hud(app, "success");
+            state.busy.store(false, Ordering::SeqCst);
+            hide_hud_after(app, cycle_id, std::time::Duration::from_millis(1800));
+        }
+        Err(_) => fail_cycle(app, Failure::new(ErrorKind::Clipboard, "Não foi possível copiar", "A transcrição está pronta. Tente novamente para copiar o texto, sem reenviar o áudio.", true), String::new()),
+    }
+}
+
+#[tauri::command]
+fn get_hud_state(app: AppHandle) -> HudState {
+    app.state::<AppState>().hud.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn retry_transcription(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let (cycle_id, recovery) = state.prepare_retry()?;
+    show_hud(&app, "processing");
+    std::thread::spawn(move || match recovery {
+        Recovery::Audio(audio) => transcribe_and_deliver(&app, cycle_id, audio),
+        Recovery::Text(text) => deliver_text(&app, cycle_id, text),
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_transcription(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    state.perform_dismiss()?;
+    if let Some(window) = app.get_webview_window(HUD_WINDOW_LABEL) { let _ = window.hide(); }
+    Ok(())
 }
 
 fn start_recording(app: &AppHandle, state: &AppState) {
@@ -279,8 +437,12 @@ fn start_recording(app: &AppHandle, state: &AppState) {
     let thread_format = format.clone();
     let thread_app = app.clone();
 
+    *state.recording.lock().unwrap() = Some(RecordingHandle { stop_flag });
+    set_tray_state(app, true);
+    show_hud(app, "recording");
+
     std::thread::spawn(move || {
-        record_until_stopped(&thread_samples, &thread_format, &thread_stop_flag);
+        let limit_reached = record_until_stopped(&thread_samples, &thread_format, &thread_stop_flag);
         // Cobre tanto o corte por MAX_RECORDING quanto qualquer saida
         // antecipada (erro de microfone): sem isso, o proximo toggle
         // interpretaria o app como "ainda gravando" pra sempre.
@@ -290,48 +452,48 @@ fn start_recording(app: &AppHandle, state: &AppState) {
             .lock()
             .unwrap()
             .take();
-        finish_recording(&thread_app, cycle_id, &thread_samples, &thread_format);
+        finish_recording(&thread_app, cycle_id, &thread_samples, &thread_format, limit_reached);
     });
 
-    *state.recording.lock().unwrap() = Some(RecordingHandle { stop_flag });
-    set_tray_state(app, true);
-    show_hud(app, "recording");
-}
-
-fn stop_recording(app: &AppHandle, state: &AppState) {
-    if let Some(handle) = state.recording.lock().unwrap().take() {
-        handle.stop_flag.store(true, Ordering::SeqCst);
-    }
-    show_hud(app, "processing");
 }
 
 fn toggle_recording(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let is_recording = state.recording.lock().unwrap().is_some();
-    if is_recording {
-        stop_recording(app, &state);
-    } else {
-        start_recording(app, &state);
+    let recording = state.recording.lock().unwrap();
+    if let Some(handle) = recording.as_ref() {
+        if !handle.stop_flag.swap(true, Ordering::SeqCst) {
+            show_hud(app, "processing");
+        }
+        return;
     }
+    drop(recording);
+    if !state.can_start_new_recording() {
+        if state.recovery.lock().unwrap().is_some() {
+            let hud = state.hud.lock().unwrap().clone();
+            present_hud(app, hud);
+        }
+        return;
+    }
+    start_recording(app, &state);
 }
 
 fn record_until_stopped(
     samples: &Arc<Mutex<Vec<f32>>>,
     format_out: &Arc<Mutex<Option<AudioFormat>>>,
     stop_flag: &Arc<AtomicBool>,
-) {
+) -> bool {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let host = cpal::default_host();
     let Some(device) = host.default_input_device() else {
         eprintln!("whispa: nenhum microfone encontrado");
-        return;
+        return false;
     };
     let config = match device.default_input_config() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("whispa: falha ao ler configuracao do microfone: {e}");
-            return;
+            return false;
         }
     };
 
@@ -362,7 +524,7 @@ fn record_until_stopped(
         ),
         other => {
             eprintln!("whispa: formato de audio nao suportado: {other:?}");
-            return;
+            return false;
         }
     };
 
@@ -370,24 +532,25 @@ fn record_until_stopped(
         Ok(s) => s,
         Err(e) => {
             eprintln!("whispa: falha ao abrir stream de audio: {e}");
-            return;
+            return false;
         }
     };
 
     if let Err(e) = stream.play() {
         eprintln!("whispa: falha ao iniciar gravacao: {e}");
-        return;
+        return false;
     }
 
     let deadline = std::time::Instant::now() + MAX_RECORDING_DURATION;
     while !stop_flag.load(Ordering::SeqCst) {
         if std::time::Instant::now() >= deadline {
             eprintln!("whispa: gravacao cortada em {MAX_RECORDING_DURATION:?} (limite de seguranca)");
-            break;
+            return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     // stream é dropado aqui, o que encerra a captura
+    false
 }
 
 fn finish_recording(
@@ -395,133 +558,51 @@ fn finish_recording(
     cycle_id: u64,
     samples: &Arc<Mutex<Vec<f32>>>,
     format: &Arc<Mutex<Option<AudioFormat>>>,
+    limit_reached: bool,
 ) {
-    let samples = samples.lock().unwrap();
-    let format = format.lock().unwrap();
-
-    if samples.is_empty() {
-        end_cycle(app, cycle_id, false, Some("[whispa] nenhuma fala capturada"));
-        return;
-    }
-    let Some(format) = format.as_ref() else {
-        end_cycle(app, cycle_id, false, Some("[whispa] microfone nao respondeu"));
-        return;
-    };
-
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let wav_path = std::env::temp_dir().join(format!("whispa-{timestamp}.wav"));
-
-    let spec = hound::WavSpec {
-        channels: format.channels,
-        sample_rate: format.sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-    match hound::WavWriter::create(&wav_path, spec) {
-        Ok(mut writer) => {
-            for sample in samples.iter() {
-                writer.write_sample(*sample).ok();
-            }
-            writer.finalize().ok();
-            transcribe_and_deliver(app, cycle_id, &wav_path);
+    let mut hud = HudState::new("processing", "TRANSCREVENDO");
+    if limit_reached { hud.message = "Limite de 3 minutos atingido. Transcrevendo o áudio capturado.".into(); }
+    present_hud(app, hud);
+    let result = {
+        let samples = samples.lock().unwrap();
+        let format = format.lock().unwrap();
+        match format.as_ref() {
+            Some(format) => transcription::encode_audio(&samples, format.sample_rate, format.channels)
+                .map(|bytes| PendingAudio {
+                    bytes: Arc::new(bytes),
+                    duration_seconds: samples.len() as f64 / format.channels as f64 / format.sample_rate as f64,
+                    limit_reached,
+                }),
+            None => Err(Failure::new(ErrorKind::Audio, "Microfone indisponível", "Confira o microfone selecionado e permita a gravação nos ajustes do sistema.", false)),
         }
-        Err(e) => {
-            eprintln!("whispa: falha ao salvar wav: {e}");
-            end_cycle(app, cycle_id, false, Some("[whispa] falha ao salvar audio gravado"));
+    };
+    // Release the large raw recording before the network request.
+    *samples.lock().unwrap() = Vec::new();
+    match result {
+        Ok(audio) => {
+            *app.state::<AppState>().recovery.lock().unwrap() = Some(Recovery::Audio(audio.clone()));
+            transcribe_and_deliver(app, cycle_id, audio);
         }
+        Err(error) => fail_cycle(app, error, String::new()),
     }
 }
 
-fn transcribe_and_deliver(app: &AppHandle, cycle_id: u64, wav_path: &std::path::Path) {
+fn transcribe_and_deliver(app: &AppHandle, cycle_id: u64, audio: PendingAudio) {
     let settings = read_settings(app);
+    let provider = if settings.provider == "openai" { "OpenAI" } else { "Groq" };
+    let detail = format!("{provider} · áudio {:.0}s · {:.1} MB{}", audio.duration_seconds,
+        audio.bytes.len() as f64 / 1_000_000.0, if audio.limit_reached { " · limite de 3 min" } else { "" });
     let Some(api_key) = read_api_key(app, &settings.provider) else {
-        end_cycle(
-            app,
-            cycle_id,
-            false,
-            Some("[whispa] configure a chave de API do provedor na janela de setup"),
-        );
+        fail_cycle(app, Failure::new(ErrorKind::Credentials, "Configure sua chave de API", "Salve a chave do provedor nas Configurações e tente novamente com este áudio.", true), detail);
         return;
     };
-
-    match transcribe(&settings, &api_key, wav_path) {
-        Ok(text) => {
-            std::fs::remove_file(wav_path).ok();
-            end_cycle(app, cycle_id, true, Some(&text));
-        }
-        Err(e) => {
-            eprintln!("whispa: falha na transcricao: {e}");
-            end_cycle(app, cycle_id, false, Some("[whispa] falha ao transcrever, tente novamente"));
-        }
+    let started = std::time::Instant::now();
+    let result = tauri::async_runtime::block_on(transcription::transcribe(
+        provider_base_url(&settings.provider), &api_key, &settings.model, &audio.bytes));
+    match result {
+        Ok(text) => deliver_text(app, cycle_id, text),
+        Err(error) => fail_cycle(app, error, format!("{detail} · espera {:.0}s", started.elapsed().as_secs_f64())),
     }
-}
-
-fn transcribe(
-    settings: &ProviderSettings,
-    api_key: &str,
-    wav_path: &std::path::Path,
-) -> Result<String, String> {
-    tauri::async_runtime::block_on(transcribe_async(
-        provider_base_url(&settings.provider),
-        api_key,
-        &settings.model,
-        wav_path,
-    ))
-}
-
-async fn transcribe_async(
-    base_url: &str,
-    api_key: &str,
-    model: &str,
-    wav_path: &std::path::Path,
-) -> Result<String, String> {
-    #[derive(serde::Deserialize)]
-    struct TranscriptionResponse {
-        text: String,
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let file_bytes = std::fs::read(wav_path).map_err(|e| format!("falha ao ler audio: {e}"))?;
-    let file_name = wav_path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "audio.wav".to_string());
-    let part = reqwest::multipart::Part::bytes(file_bytes)
-        .file_name(file_name)
-        .mime_str("audio/wav")
-        .map_err(|e| format!("falha ao anexar audio: {e}"))?;
-
-    let form = reqwest::multipart::Form::new()
-        .text("model", model.to_string())
-        .text("language", "pt")
-        .part("file", part);
-
-    let response = client
-        .post(base_url)
-        .bearer_auth(api_key)
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| format!("falha na chamada ao provedor: {e:?}"))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("provedor respondeu {status}: {body}"));
-    }
-
-    response
-        .json::<TranscriptionResponse>()
-        .await
-        .map(|r| r.text)
-        .map_err(|e| format!("resposta invalida do provedor: {e}"))
 }
 
 #[cfg(target_os = "macos")]
@@ -582,6 +663,35 @@ fn write_to_clipboard(app: &AppHandle, text: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transcription_accepts_a_response_after_eight_seconds() {
+        use std::io::{BufRead, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(15))).unwrap();
+            let mut reader = std::io::BufReader::new(&mut socket);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" { break; }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            reader.read_exact(&mut vec![0; length]).unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(9));
+            let body = r#"{"text":"descrição completa"}"#;
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            socket.write_all(response.as_bytes()).ok();
+        });
+        let result = tauri::async_runtime::block_on(super::transcription::transcribe(&url, "test-key", "test-model", b"test audio"));
+        server.join().unwrap();
+        assert_eq!(result.unwrap(), "descrição completa");
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_clipboard_write_is_observable() {
@@ -601,6 +711,114 @@ mod tests {
 
         let probe = format!("whispa-clipboard-probe-çã-{}", std::process::id());
         super::write_to_macos_clipboard(&probe).expect("escrever e reler clipboard no macOS");
+    }
+
+    #[test]
+    fn toggles_cannot_start_recording_during_transcription() {
+        let state = super::AppState::new_for_test();
+        assert!(state.can_start_new_recording(), "deve permitir gravação em estado inicial");
+        state.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!state.can_start_new_recording(), "não pode gravar enquanto ocupado com transcrição");
+    }
+
+    #[test]
+    fn clipboard_failure_retries_only_text_copying() {
+        let state = super::AppState::new_for_test();
+        *state.recovery.lock().unwrap() = Some(super::Recovery::Text("transcrição de teste".into()));
+        let error = super::Failure::new(
+            super::ErrorKind::Clipboard,
+            "Não foi possível copiar",
+            "Tente novamente para copiar",
+            true,
+        );
+        let hud = state.build_failure_hud(&error, "detalhe");
+        assert!(hud.can_retry, "falha de clipboard deve permitir tentar novamente");
+        assert!(hud.has_recovery, "deve indicar que há recuperação disponível");
+
+        let (cycle_id, recovery) = state.prepare_retry().expect("retry deve ser aceito");
+        assert_eq!(cycle_id, 1);
+        match recovery {
+            super::Recovery::Text(text) => assert_eq!(text, "transcrição de teste"),
+            super::Recovery::Audio(_) => panic!("não deve reenviar áudio quando a falha for de clipboard"),
+        }
+    }
+
+    #[test]
+    fn failed_audio_survives_repeated_attempts_until_dismissed() {
+        let state = super::AppState::new_for_test();
+        let audio = super::PendingAudio {
+            bytes: std::sync::Arc::new(vec![1, 2, 3, 4]),
+            duration_seconds: 12.5,
+            limit_reached: false,
+        };
+        *state.recovery.lock().unwrap() = Some(super::Recovery::Audio(audio.clone()));
+
+        // Primeira falha: timeout
+        let timeout_err = super::Failure::new(
+            super::ErrorKind::Timeout,
+            "Tempo esgotado",
+            "Demorou demais",
+            true,
+        );
+        let hud = state.build_failure_hud(&timeout_err, "tentativa 1");
+        assert!(hud.can_retry);
+        assert!(hud.has_recovery);
+
+        // Prepara tentativa 1
+        let (cycle1, rec1) = state.prepare_retry().unwrap();
+        assert_eq!(cycle1, 1);
+        match rec1 {
+            super::Recovery::Audio(a) => assert_eq!(a.bytes.len(), 4),
+            _ => panic!("deve ser áudio"),
+        }
+
+        // Segunda falha: erro de rede na nova tentativa
+        let conn_err = super::Failure::new(
+            super::ErrorKind::Connection,
+            "Falha de conexão",
+            "Sem rede",
+            true,
+        );
+        let hud2 = state.build_failure_hud(&conn_err, "tentativa 2");
+        assert!(hud2.can_retry);
+        assert!(hud2.has_recovery);
+
+        // Prepara tentativa 2 (o áudio original continua intacto na memória)
+        let (cycle2, rec2) = state.prepare_retry().unwrap();
+        assert_eq!(cycle2, 2);
+        match rec2 {
+            super::Recovery::Audio(a) => assert_eq!(a.bytes.len(), 4),
+            _ => panic!("deve continuar sendo o áudio original"),
+        }
+
+        // Usuário descarta
+        state.busy.store(false, std::sync::atomic::Ordering::SeqCst);
+        state.perform_dismiss().unwrap();
+        assert!(state.recovery.lock().unwrap().is_none(), "áudio deve ser descartado da memória");
+        assert_eq!(state.hud.lock().unwrap().state, "idle");
+        assert!(!state.hud.lock().unwrap().can_retry);
+        assert!(state.can_start_new_recording(), "deve poder iniciar novo ciclo após descartar");
+    }
+
+    #[test]
+    fn non_retryable_failure_blocks_retry() {
+        let state = super::AppState::new_for_test();
+        let audio = super::PendingAudio {
+            bytes: std::sync::Arc::new(vec![1, 2, 3]),
+            duration_seconds: 5.0,
+            limit_reached: false,
+        };
+        *state.recovery.lock().unwrap() = Some(super::Recovery::Audio(audio));
+
+        let non_retryable = super::Failure::new(
+            super::ErrorKind::NoSpeech,
+            "Nenhuma fala reconhecida",
+            "Fale mais perto",
+            false,
+        );
+        let hud = state.build_failure_hud(&non_retryable, "");
+        assert!(!hud.can_retry, "erro não-retryable não pode permitir retry");
+        assert!(state.prepare_retry().is_err(), "prepare_retry deve rejeitar");
     }
 }
 
@@ -717,6 +935,9 @@ pub fn run() {
             recording: Mutex::new(None),
             setup_done: AtomicBool::new(false),
             cycle_id: AtomicU64::new(0),
+            busy: AtomicBool::new(false),
+            recovery: Mutex::new(None),
+            hud: Mutex::new(HudState::new("idle", "")),
         })
         .invoke_handler(tauri::generate_handler![
             toggle_command_hint,
@@ -728,7 +949,10 @@ pub fn run() {
             get_provider_settings,
             save_provider_settings,
             platform_name,
-            hotkey_display_name
+            hotkey_display_name,
+            get_hud_state,
+            retry_transcription,
+            dismiss_transcription
         ])
         .setup(|app| {
             let handle = app.handle();

@@ -7,7 +7,7 @@
     <script type="module" src="/src/hud.ts" defer></script>
   </head>
   <body>
-    <div class="pill" id="pill" data-state="recording">
+    <div class="pill" id="pill" data-state="idle" role="status" aria-live="polite" aria-atomic="true">
       <div class="lens">
         <div class="bars">
           <span></span><span></span><span></span><span></span><span></span>
@@ -23,7 +23,16 @@
           <circle cx="12" cy="19" r="0.6" />
         </svg>
       </div>
-      <span class="label" id="label">GRAVANDO</span>
+      <div class="content">
+        <div class="heading"><span class="label" id="label"></span><span id="timer" class="timer" hidden></span></div>
+        <p id="message" class="message" hidden></p>
+        <p id="detail" class="detail" hidden></p>
+        <div id="actions" class="actions" hidden>
+          <button id="retry" type="button">Tentar novamente</button>
+          <button id="dismiss" type="button" class="secondary">Descartar</button>
+        </div>
+        <p id="recovery" class="recovery" hidden></p>
+      </div>
     </div>
   </body>
 </html>

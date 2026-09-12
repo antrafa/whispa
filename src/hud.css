@@ -16,8 +16,8 @@
 html,
 body {
   margin: 0;
-  width: 300px;
-  height: 92px;
+  width: 100%;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   -webkit-app-region: no-drag;
@@ -26,6 +26,7 @@ body {
 body {
   display: flex;
   align-items: flex-end;
+  padding: 12px;
   justify-content: center;
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
 }
@@ -36,7 +37,10 @@ body {
   align-items: center;
   gap: 12px;
   padding: 0 18px 0 12px;
-  height: 52px;
+  min-height: 64px;
+  max-width: 100%;
+  padding-top: 12px;
+  padding-bottom: 12px;
   border-radius: 26px;
   background:
     radial-gradient(140% 180% at 20% -20%, rgba(255, 255, 255, 0.06), transparent 55%),
@@ -206,3 +210,29 @@ body {
 .pill[data-state="error"] .bars {
   transition: opacity 0.15s ease;
 }
+
+
+[hidden], .pill[data-state="idle"] { display: none !important; }
+.content { min-width: 0; }
+.heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.timer { color: var(--ink); font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0.85; }
+.message, .detail, .recovery { margin: 10px 0 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.message { color: var(--ink); font-size: 14px; line-height: 1.45; }
+.detail, .recovery { color: #c9beb8; font-size: 12px; line-height: 1.4; }
+.pill[data-state="error"] { width: 100%; border-radius: 16px; align-items: flex-start; padding: 18px 16px; }
+.pill[data-state="error"] .label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; letter-spacing: normal; white-space: normal; opacity: 1; }
+.pill[data-state="error"] .lens { margin-top: 1px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+button { border: 1px solid transparent; border-radius: 8px; padding: 8px 12px; min-height: 36px; font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--ink); color: var(--graphite); cursor: pointer; }
+button:hover { background: #fff; }
+button.secondary { background: transparent; color: var(--ink); border-color: #625963; }
+button.secondary:hover { background: var(--graphite-edge); }
+button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+button:disabled { opacity: 0.5; cursor: wait; }
+::selection { background: var(--cyan); color: var(--graphite); }
+@media (prefers-reduced-motion: reduce) {
+  .pill, .pill *, .pill[data-state] .bars span, .pill[data-state] .check { animation: none !important; transition: none !important; }
+  .pill[data-state="success"] .check { stroke-dashoffset: 0; }
+}
+
+.pill[data-state="error"] { max-height: 100%; overflow-y: auto; scrollbar-color: #625963 var(--graphite); scrollbar-width: thin; }
