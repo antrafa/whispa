@@ -1,6 +1,6 @@
 [package]
 name = "whispa"
-version = "0.1.6"
+version = "0.1.7"
 description = "Ditado por voz com atalho global — grava, transcreve e cola em qualquer app"
 authors = ["Antonio Rafael Ortega"]
 edition = "2021"
