@@ -2,6 +2,28 @@ use std::{io::Cursor, time::Duration};
 
 pub const MAX_UPLOAD_BYTES: usize = 24_000_000;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+// O Whisper imita a grafia do prompt: um exemplo bilíngue evita que termos em inglês sejam aportuguesados.
+// O Groq corta o prompt em 224 tokens, então ele precisa continuar curto.
+const VOCABULARY_PROMPT: &str = "Fiz o deploy no cluster Kubernetes, abri o pull request e o merge request no GitLab, \
+rodei o pipeline de CI/CD e corrigi o bug no backend. O frontend chama a API REST pelo endpoint, \
+o commit está na branch main e o rollback do release ficou pronto.";
+// Base (~260 caracteres) + vocabulário precisa caber nos 224 tokens; acima disso o Whisper descarta o começo.
+pub const MAX_VOCABULARY_CHARS: usize = 400;
+
+/// Termos separados por vírgula ou quebra de linha, sem vazios nem repetidos.
+pub fn vocabulary_terms(vocabulary: &str) -> Vec<String> {
+    let mut terms: Vec<String> = Vec::new();
+    for term in vocabulary.split([',', '\n']).map(str::trim).filter(|t| !t.is_empty()) {
+        if !terms.iter().any(|known| known == term) { terms.push(term.to_string()); }
+    }
+    terms
+}
+
+pub fn build_prompt(vocabulary: &str) -> String {
+    let terms = vocabulary_terms(vocabulary);
+    if terms.is_empty() { return VOCABULARY_PROMPT.to_string(); }
+    format!("{VOCABULARY_PROMPT} Também falo de {}.", terms.join(", "))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,7 +119,7 @@ fn network_failure(error: reqwest::Error) -> Failure {
     }
 }
 
-pub async fn transcribe(base_url: &str, api_key: &str, model: &str, audio: &[u8]) -> Result<String, Failure> {
+pub async fn transcribe(base_url: &str, api_key: &str, model: &str, prompt: &str, audio: &[u8]) -> Result<String, Failure> {
     if audio.len() > MAX_UPLOAD_BYTES { return Err(http_failure(413, "")); }
     if audio.is_empty() { return Err(Failure::new(ErrorKind::Audio, "Áudio vazio", "Grave novamente e confira seu microfone.", false)); }
     let client = reqwest::Client::builder()
@@ -107,7 +129,8 @@ pub async fn transcribe(base_url: &str, api_key: &str, model: &str, audio: &[u8]
     let part = reqwest::multipart::Part::bytes(audio.to_vec())
         .file_name("audio.wav").mime_str("audio/wav").expect("valid WAV MIME type");
     let form = reqwest::multipart::Form::new()
-        .text("model", model.to_string()).text("language", "pt").part("file", part);
+        .text("model", model.to_string()).text("language", "pt")
+        .text("prompt", prompt.to_string()).part("file", part);
     let response = client.post(base_url).bearer_auth(api_key).multipart(form)
         .send().await.map_err(network_failure)?;
     let status = response.status();
@@ -126,7 +149,7 @@ pub async fn transcribe(base_url: &str, api_key: &str, model: &str, audio: &[u8]
 mod tests {
     use super::*;
 
-    fn respond_once(status: u16, body: &str) -> (String, std::thread::JoinHandle<()>) {
+    fn respond_once(status: u16, body: &str) -> (String, std::thread::JoinHandle<Vec<u8>>) {
         use std::io::{BufRead, Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -144,10 +167,29 @@ mod tests {
                     length = value.trim().parse::<usize>().unwrap();
                 }
             }
-            reader.read_exact(&mut vec![0; length]).unwrap();
+            let mut request = vec![0; length];
+            reader.read_exact(&mut request).unwrap();
             write!(socket, "HTTP/1.1 {status} Response\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            request
         });
         (url, worker)
+    }
+
+    #[test]
+    fn prompt_appends_user_terms_once_and_ignores_blank_vocabulary() {
+        assert_eq!(build_prompt("  \n , "), VOCABULARY_PROMPT);
+        let prompt = build_prompt("SIDER, jCompany\n\nSIDER\n Rancher ");
+        assert!(prompt.starts_with(VOCABULARY_PROMPT));
+        assert!(prompt.ends_with(" Também falo de SIDER, jCompany, Rancher."));
+    }
+
+    #[test]
+    fn request_sends_portuguese_language_and_vocabulary_prompt() {
+        let (url, server) = respond_once(200, r#"{"text":"ok"}"#);
+        tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", VOCABULARY_PROMPT, b"audio")).unwrap();
+        let request = String::from_utf8_lossy(&server.join().unwrap()).into_owned();
+        assert!(request.contains("name=\"language\"\r\n\r\npt"));
+        assert!(request.contains(&format!("name=\"prompt\"\r\n\r\n{VOCABULARY_PROMPT}")));
     }
 
     #[test]
@@ -161,7 +203,7 @@ mod tests {
             (200, r#"{"text":"   "}"#, ErrorKind::NoSpeech),
         ] {
             let (url, server) = respond_once(status, body);
-            let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", b"audio"));
+            let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", VOCABULARY_PROMPT, b"audio"));
             server.join().unwrap();
             assert_eq!(result.unwrap_err().kind, expected);
         }
@@ -170,7 +212,7 @@ mod tests {
     #[test]
     fn successful_response_preserves_accents_and_trims_whitespace() {
         let (url, server) = respond_once(200, r#"{"text":"  Olá, descrição completa. \n"}"#);
-        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", b"audio"));
+        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", VOCABULARY_PROMPT, b"audio"));
         server.join().unwrap();
         assert_eq!(result.unwrap(), "Olá, descrição completa.");
     }
@@ -180,9 +222,9 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         drop(listener);
-        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", b"audio"));
+        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", VOCABULARY_PROMPT, b"audio"));
         assert_eq!(result.unwrap_err().kind, ErrorKind::Connection);
-        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", &vec![0; 24_000_001]));
+        let result = tauri::async_runtime::block_on(transcribe(&url, "test-key", "test-model", VOCABULARY_PROMPT, &vec![0; 24_000_001]));
         assert_eq!(result.unwrap_err().kind, ErrorKind::TooLarge);
     }
 

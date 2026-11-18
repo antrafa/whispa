@@ -129,6 +129,29 @@
         </p>
       </section>
 
+      <section class="card">
+        <div class="card-head">
+          <span class="badge-no">3</span>
+          <h1>Vocabulário</h1>
+        </div>
+        <p>
+          Termos que você fala e que devem sair escritos exatamente assim:
+          nomes de sistemas, clientes, ferramentas. Um por linha ou separados por vírgula.
+        </p>
+        <form id="vocabulary-form">
+          <textarea id="vocabulary-input" rows="5" maxlength="400" spellcheck="false"
+            placeholder="SIDER&#10;jCompany&#10;Rancher"></textarea>
+          <div class="vocabulary-actions">
+            <span class="hint" id="vocabulary-count">0/400</span>
+            <button class="btn-pill" type="submit">Salvar</button>
+          </div>
+        </form>
+        <p class="status chip" id="vocabulary-status">
+          <span class="dot"></span>
+          <span class="msg">carregando…</span>
+        </p>
+      </section>
+
       <section class="card card-row">
         <div class="row-text">
           <h1>Iniciar com o sistema</h1>

@@ -389,6 +389,37 @@ code {
   font-size: 12.5px;
 }
 
+#vocabulary-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card-hi);
+  color: var(--ink);
+  padding: 11px 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+#vocabulary-input:focus {
+  outline: none;
+  border-color: rgba(255, 171, 74, 0.5);
+}
+
+.vocabulary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 14px;
+}
+
+.vocabulary-actions .btn-pill {
+  width: auto;
+  padding: 12px 22px;
+}
+
 #api-key-input:focus {
   outline: none;
   border-color: rgba(255, 171, 74, 0.5);

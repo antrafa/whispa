@@ -181,6 +181,41 @@ async function saveApiKey(event: SubmitEvent) {
   await refreshApiKeyStatus();
 }
 
+const MAX_VOCABULARY_CHARS = 400;
+
+function countVocabulary() {
+  const input = document.querySelector<HTMLTextAreaElement>("#vocabulary-input");
+  const counter = document.querySelector("#vocabulary-count");
+  if (input && counter) counter.textContent = `${input.value.length}/${MAX_VOCABULARY_CHARS}`;
+}
+
+function describeVocabulary(vocabulary: string): string {
+  const total = vocabulary.split("\n").filter((term) => term.trim()).length;
+  if (total === 0) return "nenhum termo salvo ainda.";
+  return total === 1 ? "1 termo salvo." : `${total} termos salvos.`;
+}
+
+async function loadVocabulary() {
+  const input = document.querySelector<HTMLTextAreaElement>("#vocabulary-input");
+  if (!input) return;
+  const vocabulary = await invoke<string>("get_vocabulary");
+  input.value = vocabulary;
+  countVocabulary();
+  setStatus("#vocabulary-status", vocabulary.trim() !== "", describeVocabulary(vocabulary));
+}
+
+async function saveVocabulary(event: SubmitEvent) {
+  event.preventDefault();
+  const input = document.querySelector<HTMLTextAreaElement>("#vocabulary-input");
+  if (!input) return;
+  try {
+    await invoke("save_vocabulary", { vocabulary: input.value });
+    await loadVocabulary();
+  } catch (error) {
+    setStatus("#vocabulary-status", false, String(error));
+  }
+}
+
 async function setupAutostartToggle() {
   const toggle = document.querySelector<HTMLButtonElement>("#autostart-toggle");
   if (!toggle) return;
@@ -232,6 +267,7 @@ window.addEventListener("DOMContentLoaded", () => {
   setupHotkeyUi();
   loadToggleCommand();
   loadProviderSettings();
+  loadVocabulary();
   setupAutostartToggle();
   checkForUpdateAndPrompt();
 
@@ -251,4 +287,8 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll<HTMLButtonElement>("#provider-tabs button").forEach((btn) => {
     btn.addEventListener("click", () => switchProvider(btn.dataset.provider!));
   });
+  document
+    .querySelector<HTMLFormElement>("#vocabulary-form")
+    ?.addEventListener("submit", saveVocabulary);
+  document.querySelector("#vocabulary-input")?.addEventListener("input", countVocabulary);
 });

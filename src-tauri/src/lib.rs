@@ -254,6 +254,14 @@ fn write_settings(app: &AppHandle, settings: &ProviderSettings) -> Result<(), St
     std::fs::write(settings_path(app), json).map_err(|e| e.to_string())
 }
 
+fn vocabulary_path(app: &AppHandle) -> std::path::PathBuf {
+    config_dir(app).join("vocabulary.txt")
+}
+
+fn read_vocabulary(app: &AppHandle) -> String {
+    std::fs::read_to_string(vocabulary_path(app)).unwrap_or_default()
+}
+
 fn api_key_path(app: &AppHandle, provider: &str) -> std::path::PathBuf {
     config_dir(app).join(format!("{provider}-api-key"))
 }
@@ -598,7 +606,8 @@ fn transcribe_and_deliver(app: &AppHandle, cycle_id: u64, audio: PendingAudio) {
     };
     let started = std::time::Instant::now();
     let result = tauri::async_runtime::block_on(transcription::transcribe(
-        provider_base_url(&settings.provider), &api_key, &settings.model, &audio.bytes));
+        provider_base_url(&settings.provider), &api_key, &settings.model,
+        &transcription::build_prompt(&read_vocabulary(app)), &audio.bytes));
     match result {
         Ok(text) => deliver_text(app, cycle_id, text),
         Err(error) => fail_cycle(app, error, format!("{detail} · espera {:.0}s", started.elapsed().as_secs_f64())),
@@ -687,7 +696,7 @@ mod tests {
             let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
             socket.write_all(response.as_bytes()).ok();
         });
-        let result = tauri::async_runtime::block_on(super::transcription::transcribe(&url, "test-key", "test-model", b"test audio"));
+        let result = tauri::async_runtime::block_on(super::transcription::transcribe(&url, "test-key", "test-model", "", b"test audio"));
         server.join().unwrap();
         assert_eq!(result.unwrap(), "descrição completa");
     }
@@ -913,6 +922,21 @@ fn save_provider_settings(app: AppHandle, provider: String, model: String) -> Re
     write_settings(&app, &ProviderSettings { provider, model })
 }
 
+#[tauri::command]
+fn get_vocabulary(app: AppHandle) -> String {
+    read_vocabulary(&app)
+}
+
+#[tauri::command]
+fn save_vocabulary(app: AppHandle, vocabulary: String) -> Result<(), String> {
+    let terms = transcription::vocabulary_terms(&vocabulary).join("\n");
+    if terms.chars().count() > transcription::MAX_VOCABULARY_CHARS {
+        return Err(format!("O vocabulário passou de {} caracteres. Remova alguns termos.", transcription::MAX_VOCABULARY_CHARS));
+    }
+    std::fs::write(vocabulary_path(&app), terms)
+        .map_err(|e| format!("falha ao salvar o vocabulário: {e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -948,6 +972,8 @@ pub fn run() {
             list_provider_models,
             get_provider_settings,
             save_provider_settings,
+            get_vocabulary,
+            save_vocabulary,
             platform_name,
             hotkey_display_name,
             get_hud_state,
